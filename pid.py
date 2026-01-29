@@ -1,57 +1,98 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-dt = 0.5
-t_end = 100
+# =============================
+# Time
+# =============================
+dt = 0.1
+t_end = 600
 time = np.arange(0, t_end, dt)
 
-C = 8         # thermal capacitance (J/°C)
-R = 2.0           # thermal resistance (°C/W)
-Tamb = 25.0       # ambient temperature (°C)
-k_tec = 5.0      # TEC power gain (W per control unit)
+# =============================
+# Thermal parameters
+# =============================
+C = 8.0           # thermal capacitance (J/°C)
+R = 2.5            # thermal resistance (°C/W)
+Tamb0 = 25.0       # nominal ambient temp
+k_tec = 6.0        # TEC gain (W/unit)
 
-kp = 8
-ki = 0.4
-kd = 2.0
+tau_laser = 5.0    # laser thermal lag (s)
 
-T_set = 30.0      # target laser temperature (°C)
+# =============================
+# PID (PI-D) gains
+# =============================
+Kp = 1.0
+Ki = 0.02
+Kd = 10.0
 
-T = Tamb
+# =============================
+# Setpoint
+# =============================
+T_set = 30.0
+
+# =============================
+# Initial states
+# =============================
+T_mount = Tamb0
+T_laser = Tamb0
+
 integral = 0.0
-prev_error = 0.0
+prev_T = T_laser
 
-T_history = []
-U_history = []
+T_log = []
+U_log = []
+Tamb_log = []
 
+# =============================
+# Simulation loop
+# =============================
 for t in time:
-    noise = np.random.normal(0, 0.02)
-    T_measured = T + noise
 
+    # Ambient drift (slow)
+    Tamb = Tamb0 + 0.5 * np.sin(2*np.pi*t/600)
+
+    # Sensor noise
+    T_measured = T_laser + np.random.normal(0, 0.01)
+
+    # Error
     error = T_set - T_measured
+
+    # Integral (anti-windup)
     integral += error * dt
-    derivative = (error - prev_error) / dt
+    integral = np.clip(integral, -20, 20)
 
-    u = kp * error + ki * integral + kd * derivative
+    # Derivative on measurement
+    dTdt = (T_laser - prev_T) / dt
 
+    # PI-D control law
+    u = Kp * error + Ki * integral - Kd * dTdt
     u = np.clip(u, -1.0, 1.0)
 
-    dT = (k_tec * u - (T - Tamb) / R) / C
-    T += dT * dt
+    # Mount thermal dynamics
+    dT_mount = (k_tec * u - (T_mount - Tamb) / R) / C
+    T_mount += dT_mount * dt
 
-    T_history.append(T)
-    U_history.append(u)
+    # Laser thermal lag
+    dT_laser = (T_mount - T_laser) / tau_laser
+    T_laser += dT_laser * dt
 
-    prev_error = error
+    prev_T = T_laser
 
-    T_history.append(T)
-    U_history.append(u)
+    # Logging
+    T_log.append(T_laser)
+    U_log.append(u)
+    Tamb_log.append(Tamb)
 
-plt.figure(figsize=(12, 5))
-plt.plot(time, T_history, label="Laser Temperature")
-plt.axhline(T_set, linestyle="--", label="Setpoint")
+# =============================
+# Plot
+# =============================
+plt.figure(figsize=(12,5))
+plt.plot(time, T_log, label="Laser Temperature")
+plt.plot(time, Tamb_log, '--', label="Ambient")
+plt.axhline(T_set, linestyle=':', label="Setpoint")
 plt.xlabel("Time (s)")
 plt.ylabel("Temperature (°C)")
-plt.title("Laser Temperature Control using PID + TEC")
+plt.title("Laser Temperature Stabilization using TEC (Improved Model)")
 plt.legend()
 plt.grid()
 plt.show()
